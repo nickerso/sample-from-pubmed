@@ -1,53 +1,52 @@
 import sys
-
-import entrezpy.esearch.esearcher
-import entrezpy.log.logger
 import random
-
-
-# entrezpy.log.logger.set_level('DEBUG')
+from string import Template
+from xml.dom import minidom
+from xml.etree import ElementTree
+from easy_entrez import EntrezAPI
 
 
 def select_sample(uids, size):
     return random.sample(uids, size)
 
 
-def execute_search(toolname, email, query_string):
-    es = entrezpy.esearch.esearcher.Esearcher(toolname, email)
-    analyzer = es.inquire({
-        'db': 'pubmed',
-        'term': query_string,
-        'rettype': 'uilist'
-    })
-    count = analyzer.result.count
-    print(f'Number of results: {count}')
-    uids = analyzer.result.uids
-    if count != len(uids):
-        print(f'Should have {count} UIDs but there are {len(uids)}.')
-        exit(-1)
-    return uids
+def xml_to_string(element):
+    return (
+        minidom.parseString(ElementTree.tostring(element))
+        .toprettyxml(indent=' ' * 4)
+    )
 
 
 if __name__ == '__main__':
 
-    toolname = 'esearcher-sampler'
+    toolname = 'py-search-sampler'
     email = sys.argv[1]
 
-    query = '("last 10 years"[dp] AND english[la] NOT review[pt])' \
-            ' AND ' \
-            '("Computer Simulation"[MH] OR "Computer Simulation"[TIAB] OR "Mathematical Computing "[MH] OR "Mathematical Computing "[TIAB] OR "Systems Biology"[MH] OR "Systems Biology"[TIAB] OR "Models, Theoretical"[MH] OR "Theoretical Model"[TIAB] OR "Models, Biological"[MH] OR "Biological Model"[TIAB] OR "Computational Model"[TIAB])' \
-            ' AND ' \
-            'Cells[MH]'
+    entrez_api = EntrezAPI(
+        toolname,
+        email,
+        return_type='json'
+    )
 
-    # query = '("Computer Simulation"[MH] OR "Computer Simulation"[TIAB] OR "Mathematical Computing"[MH] OR "Mathematical Computing"[TIAB] OR "Systems Biology"[MH] OR "Systems Biology"[TIAB] OR "Models, Theoretical"[MH] OR "Theoretical Model"[TIAB] OR "Models, Biological"[MH] OR "Biological Model"[TIAB] OR "Computational Model"[TIAB])'
+    query_template = Template(
+        '(english[la] NOT review[pt])'
+        ' AND '
+        '("Computer Simulation"[MH] OR "Computer Simulation"[TIAB] OR "Mathematical Computing "[MH] OR "Mathematical Computing "[TIAB] OR "Systems Biology"[MH] OR "Systems Biology"[TIAB] OR "Models, Theoretical"[MH] OR "Theoretical Model"[TIAB] OR "Models, Biological"[MH] OR "Biological Model"[TIAB] OR "Computational Model"[TIAB])'
+        ' AND '
+        'Cells[MH] AND (("${year}"[Date - Publication] : "${year}"[Date - Publication]))'
+    )
 
-    # query = '"Computer Simulation"[MH]'
-    # query = '"Computer Simulation"[MH] OR "Computer Simulation"[TIAB]'
+    years = [2010, 2021]
+    uids = []
+    for year in years:
+        print(f'Searching for publications in year: {year}')
+        term = query_template.substitute(year=year)
+        results = entrez_api.search(database='pubmed', term=term, max_results=100000)
+        r = results.data['esearchresult']
+        all_uids = r['idlist']
+        print(f'Found {len(all_uids)} articles')
+        uids.extend(select_sample(all_uids, 5))
 
-    # query = 'nickerson dp[Author - First]'
-
-    print(query)
-    uids = execute_search(toolname, email, query)
-    sample_uids = select_sample(uids, 10)
-    print(f'Selected random sample of Pubmed IDs to check: {sample_uids}')
-    # fetch_pubmed(sample_uids)
+    fetch_data = entrez_api.fetch(uids, max_results=10000)
+    articles = fetch_data.data
+    print(xml_to_string(articles))
