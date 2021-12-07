@@ -1,1 +1,1 @@
-entrezpy==2.1.3
+easy-entrez==0.3.0
